@@ -54,7 +54,7 @@ async function get(path) {
 export async function* fetchStream(message, history = []) {
   let res;
   try {
-    res = await fetch("/api/chat", {
+    res = await fetch(BASE + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, history }),
