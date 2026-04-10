@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* ── Tesla-inspired design tokens ─────────────────────────────────────── */
+:root {
+  --tesla-red:    #e82127;
+  --tesla-red-dim: #b01a1f;
+  --bg-base:      #080808;
+  --bg-panel:     #111111;
+  --bg-card:      #161616;
+  --bg-hover:     #1e1e1e;
+  --border:       #2a2a2a;
+  --border-light: #333333;
+  --text-primary: #f5f5f5;
+  --text-secondary: #b8c0cc;
+  --text-dim:     #8b95a1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #333; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ── SSE streaming cursor blink ────────────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cursor-blink::after {
+  content: '▋';
+  color: var(--tesla-red);
+  animation: blink 1s step-end infinite;
+  margin-left: 1px;
+}
+
+/* ── Thinking pulse ────────────────────────────────────────────────────── */
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 1; }
+}
+.thinking-dot {
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ── Fade-in ──────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fade-in 0.25s ease-out; }

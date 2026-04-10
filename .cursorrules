@@ -1,0 +1,177 @@
+# ChainMind — Cursor Development Instructions
+
+## PROJECT CONTEXT
+You are building **ChainMind**, a full-stack AI-powered supply chain network optimizer for a Tesla MLE panel interview presentation. This is a LOCAL-ONLY demo (no deployment needed). The user has an Azure OpenAI API key.
+
+## TECH STACK (NON-NEGOTIABLE)
+- **Backend**: FastAPI + Python 3.11+
+- **LLM**: Azure OpenAI GPT-4o via `langchain-openai` AzureChatOpenAI
+- **Agent**: LangGraph with tool-calling
+- **ML**: scikit-learn XGBoost for cost prediction
+- **Optimization**: PuLP for network LP solver
+- **Database**: SQLite (zero setup)
+- **Frontend**: React + Vite + Tailwind CSS + Recharts
+- **Streaming**: Server-Sent Events (SSE) for real-time agent reasoning
+
+## ARCHITECTURE
+```
+React Frontend (Chat + Dashboard + Network Map)
+        ↓ REST API + SSE
+FastAPI Backend
+        ↓
+LangGraph Analyst Agent (Azure OpenAI GPT-4o)
+        ↓ tool calls
+┌─────────────┬──────────────────┬───────────────┐
+│Cost Predictor│Network Optimizer │  Data Query    │
+│ (XGBoost)   │  (PuLP LP)       │  (SQLite)      │
+└─────────────┴──────────────────┴───────────────┘
+        ↓
+SQLite DB (suppliers, routes, DCs, shipments)
+```
+
+## FILE STRUCTURE
+```
+chainmind/
+├── backend/
+│   ├── main.py                  # FastAPI app, CORS, routers
+│   ├── config.py                # Azure OpenAI + app settings
+│   ├── database.py              # SQLite setup + seed data generation
+│   ├── models.py                # Pydantic schemas
+│   ├── agent/
+│   │   ├── orchestrator.py      # LangGraph agent with tools
+│   │   └── tools.py             # All 3 tools: cost_predict, optimize_network, query_data
+│   ├── ml/
+│   │   └── train_models.py      # Train + save XGBoost cost model
+│   ├── routers/
+│   │   ├── chat.py              # POST /api/chat (SSE streaming)
+│   │   ├── network.py           # GET endpoints for network data
+│   │   ├── dashboard.py         # GET /api/dashboard/kpis
+│   │   └── optimize.py          # POST /api/optimize/network
+│   └── requirements.txt
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── src/
+│   │   ├── App.jsx              # Main layout with sidebar
+│   │   ├── main.jsx
+│   │   ├── components/
+│   │   │   ├── ChatPanel.jsx    # NL chat with SSE streaming
+│   │   │   ├── Dashboard.jsx    # KPI cards + cost breakdown chart
+│   │   │   ├── NetworkMap.jsx   # SVG network graph
+│   │   │   └── AgentThinking.jsx # Shows agent reasoning steps
+│   │   └── api/
+│   │       └── client.js        # Fetch wrapper for backend
+│   └── index.html
+├── .env                         # Azure OpenAI credentials
+└── README.md
+```
+
+## .env FILE FORMAT
+```
+AZURE_OPENAI_API_KEY=your_key_here
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_API_VERSION=2024-10-21
+```
+
+## SYNTHETIC DATA SPEC
+Generate this on app startup in database.py:
+
+**Suppliers (5):**
+| id | name | city | country | lat | lon | capacity |
+|----|------|------|---------|-----|-----|----------|
+| SUP-SH | Shanghai Electronics | Shanghai | China | 31.23 | 121.47 | 500 |
+| SUP-SZ | Shenzhen Components | Shenzhen | China | 22.54 | 114.06 | 400 |
+| SUP-MU | Munich Auto Parts | Munich | Germany | 48.14 | 11.58 | 300 |
+| SUP-MO | Monterrey Industrial | Monterrey | Mexico | 25.67 | -100.31 | 450 |
+| SUP-DE | Detroit Motors Supply | Detroit | USA | 42.33 | -83.05 | 350 |
+
+**Distribution Centers (4):**
+| id | name | city | state | lat | lon | capacity | fixed_cost_monthly |
+|----|------|------|-------|-----|-----|----------|--------------------|
+| DC-FR | Fremont DC | Fremont | CA | 37.55 | -121.98 | 2000 | 150000 |
+| DC-AU | Austin DC | Austin | TX | 30.27 | -97.74 | 1800 | 120000 |
+| DC-LA | Lathrop DC | Lathrop | CA | 37.82 | -121.28 | 1500 | 100000 |
+| DC-ME | Memphis Hub | Memphis | TN | 35.15 | -90.05 | 2200 | 130000 |
+
+**Routes (20 lanes):** Generate routes connecting each supplier to 2-4 DCs with modes (truck/rail/ocean/air). Each route has: base_cost_per_unit ($5-$80 depending on distance+mode), transit_days (1-25), capacity_units_per_day (50-500).
+
+**Shipments (10,000 records):** 2 years of historical data. Random route, random units (10-200), actual_cost = base_cost * units * random(0.85, 1.25), actual_transit = transit_days * random(0.8, 1.4), on_time = actual_transit <= transit_days * 1.1.
+
+## ML MODEL SPEC (Cost Predictor)
+- **Features**: distance_miles, weight_units, mode_encoded (one-hot: truck/rail/ocean/air), season (1-4), origin_country_encoded, congestion_factor (random 0.8-1.3)
+- **Target**: actual_cost from shipments table
+- **Algorithm**: XGBoost Regressor
+- **Train on startup** if model file doesn't exist, save to `ml/cost_model.pkl`
+- **Prediction endpoint**: takes origin, destination, mode, units, season → returns predicted cost
+
+## NETWORK OPTIMIZER SPEC (PuLP)
+```
+Minimize: Σ (cost_ij × flow_ij) + Σ (fixed_cost_j × open_j)
+Subject to:
+  - Demand satisfaction: Σ_i flow_ij >= demand_j for each DC j
+  - Capacity: flow_ij <= capacity_ij for each route
+  - DC capacity: Σ_i flow_ij <= capacity_j × open_j for each DC j
+  - Binary: open_j ∈ {0, 1}
+```
+Return: which DCs to open, flow on each route, total cost, utilization per DC.
+
+## LANGGRAPH AGENT SPEC
+Single analyst agent with 3 tools:
+1. `query_supply_chain_data(sql_query: str)` — runs read-only SQL against SQLite
+2. `predict_shipping_cost(origin: str, destination: str, mode: str, units: int, season: int)` — calls XGBoost model
+3. `optimize_network(demand: dict, budget: float)` — runs PuLP optimizer
+
+The agent receives natural language questions and decides which tools to call. Use Azure OpenAI GPT-4o. System prompt should explain it's a supply chain optimization assistant for Tesla's inbound distribution network.
+
+## SSE STREAMING FORMAT
+```python
+# In chat.py router
+@router.post("/api/chat")
+async def chat(request: ChatRequest):
+    async def event_stream():
+        async for event in orchestrator.astream(request.message):
+            if event["type"] == "thinking":
+                yield f"data: {json.dumps({'type': 'thinking', 'content': event['content']})}\n\n"
+            elif event["type"] == "tool_call":
+                yield f"data: {json.dumps({'type': 'tool_call', 'tool': event['tool'], 'input': event['input']})}\n\n"
+            elif event["type"] == "tool_result":
+                yield f"data: {json.dumps({'type': 'tool_result', 'tool': event['tool'], 'output': event['output']})}\n\n"
+            elif event["type"] == "answer":
+                yield f"data: {json.dumps({'type': 'answer', 'content': event['content']})}\n\n"
+        yield "data: [DONE]\n\n"
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+```
+
+## REACT FRONTEND SPEC
+- **Layout**: Sidebar (nav) + Main content area
+- **Chat Panel**: Left side. Message input, streaming response display with typing animation. Show agent thinking steps (tool calls, reasoning) in collapsible cards with subtle styling.
+- **Dashboard**: Right side. 4 KPI cards (total cost, avg transit days, service level %, network utilization). Cost breakdown bar chart (by mode). Top routes table.
+- **Network Map**: Simple SVG showing suppliers (blue dots) → routes (lines with thickness = flow volume) → DCs (green dots). Clickable nodes.
+- **Color scheme**: Dark professional theme. Tesla-inspired — black/dark gray background, red accents, white text.
+- **SSE consumption in React**:
+```jsx
+const eventSource = new EventSource('/api/chat?' + new URLSearchParams({message}));
+eventSource.onmessage = (e) => {
+  if (e.data === '[DONE]') { eventSource.close(); return; }
+  const event = JSON.parse(e.data);
+  // handle event.type: thinking, tool_call, tool_result, answer
+};
+```
+
+## CRITICAL IMPLEMENTATION NOTES
+1. Use `langchain_openai.AzureChatOpenAI` NOT `openai` directly
+2. Use `langgraph.prebuilt.create_react_agent` for the agent — simplest path
+3. CORS must allow localhost:5173 (Vite dev server)
+4. SSE endpoint must use POST with request body, not GET with query params (for long messages). Use fetch() with ReadableStream on frontend, not EventSource (EventSource only supports GET).
+5. All ML training happens on first startup — no separate training step needed
+6. SQLite DB is created fresh on startup if not exists
+7. Frontend uses Vite proxy to avoid CORS issues in dev: add `proxy: { '/api': 'http://localhost:8000' }` to vite.config.js
+
+## DEMO QUERIES TO TEST
+These should all work end-to-end:
+1. "What is our total inbound shipping cost this quarter?"
+2. "What's the cheapest way to ship 100 units from Shanghai to Fremont?"
+3. "Optimize our network to minimize total cost with a $500K monthly budget"
+4. "Which routes have the worst on-time delivery rates?"
+5. "Compare shipping costs: truck vs ocean from Shenzhen to Austin"
