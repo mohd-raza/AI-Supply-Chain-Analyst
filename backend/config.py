@@ -30,6 +30,7 @@ CORS_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
+    os.getenv("FRONTEND_URL", ""),   # set this in Render to your Vercel URL
 ]
 
 def validate_config() -> list[str]:
